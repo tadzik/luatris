@@ -11,6 +11,20 @@ function dump(o)
     end
 end
 
+function deepcopy(t)
+    if type(t) ~= 'table' then return t end
+    local mt = getmetatable(t)
+    local res = {}
+    for k,v in pairs(t) do
+        if type(v) == 'table' then
+            v = deepcopy(v)
+        end
+        res[k] = v
+    end
+    setmetatable(res,mt)
+    return res
+end
+
 --
 -- our board
 -- 0 -- empty
@@ -34,7 +48,7 @@ window_w = 480
 -- pieces
 pieces = {
     -- pozycja,    d1,       d2,       d3
-    { { 0, 0 }, { 1, 0 }, { 2, 0 }, { 3, 0 } }, -- I
+    { { 0, 0 }, { 1, 0 }, { 2, 0 }, {-1, 0 } }, -- I
     { { 0, 0 }, { 0,-1 }, { 1, 0 }, { 2, 0 } }, -- J
     { { 0, 0 }, {-2, 0 }, {-1, 0 }, { 0,-1 } }, -- L
     { { 0, 0 }, { 1, 0 }, {-1, 1 }, { 0, 1 } }, -- S
@@ -62,7 +76,6 @@ end
 function pickMovingPiece()
     local new = pieces[math.random(7)]
     new[1] = { 5, 19 }
-    new = pieceToCoords(new)
     return new
 end
 
@@ -104,24 +117,53 @@ function love.load()
     love.graphics.setLineWidth(border_w)
 end
 
-function updateMovingPiece(what)
-    if not movingPiece then return end
-    for i in pairs(movingPiece) do
-        x = movingPiece[i][1]
-        y = movingPiece[i][2]
-        map[y][x] = what
+function updatePiece(what, how)
+    local k = pieceToCoords(what)
+    for i in pairs(k) do
+        x = k[i][1]
+        y = k[i][2]
+        map[y][x] = how
+    end
+end
+
+function rotatePiece()
+    local function isLegal(piece, map)
+        local possible = true
+        for i in pairs(piece) do
+            x = piece[i][1]
+            y = piece[i][2]
+            if x < 1 or x > width
+            or y < 1 or y > height
+            or map[y][x] > 0 then
+                possible = false
+            end
+        end
+        return possible
+    end
+
+    local rotated = { {}, {}, {}, {} }
+    rotated[1] = movingPiece[1]
+    for i = 2, 4 do
+        rotated[i][1] = - movingPiece[i][2]
+        rotated[i][2] =   movingPiece[i][1]
+    end
+    if isLegal(pieceToCoords(rotated), map) then
+        movingPiece = rotated
     end
 end
 
 function movePiece(dx, dy)
     if not movingPiece then return end
     -- calculate new position of the moving piece
-    newMovingPiece = {}
-    possible       = true
-    stops          = false
-    for i in pairs(movingPiece) do
-        x = movingPiece[i][1] + dx
-        y = movingPiece[i][2] + dy
+    local possible       = true
+    local stops          = false
+    local k = deepcopy(movingPiece)
+    k[1][1] = k[1][1] + dx
+    k[1][2] = k[1][2] + dy
+    local c = pieceToCoords(k)
+    for i in pairs(c) do
+        x = c[i][1]
+        y = c[i][2]
         if y < 1 or map[y][x] == 1 and dy ~= 0
         then
             stops = true
@@ -130,23 +172,20 @@ function movePiece(dx, dy)
         if x < 1 or x > width or map[y][x] == 1 then
             possible = false
         end
-        newMovingPiece[i] = {}
-        newMovingPiece[i][1] = x
-        newMovingPiece[i][2] = y
     end
     
     if stops then
-        updateMovingPiece(1)
+        updatePiece(movingPiece, 1)
         movingPiece = pickMovingPiece()
-        updateMovingPiece(2)
+        updatePiece(movingPiece, 2)
         checkFull()
         return
     end
 
     if possible then
-        updateMovingPiece(0)
-        movingPiece = newMovingPiece
-        updateMovingPiece(2)
+        updatePiece(movingPiece, 0)
+        movingPiece = k
+        updatePiece(movingPiece, 2)
     end
 end
 
@@ -161,16 +200,21 @@ function love.update(dt)
         end
         lastUpdate = love.timer.getTime()
 
-        debugPrint()
+        --debugPrint()
     end
 
-    if love.timer.getMicroTime() - lastSideMove >= 0.05 then
+    if love.timer.getMicroTime() - lastSideMove >= 0.07 then
         if love.keyboard.isDown("left") then
             movePiece(-1, 0)
-            updateMovingPiece(2)
+            updatePiece(movingPiece, 2)
         elseif love.keyboard.isDown("right") then
             movePiece(1, 0)
-            updateMovingPiece(2)
+            updatePiece(movingPiece, 2)
+        end
+        if love.keyboard.isDown("up") then
+            updatePiece(movingPiece, 0)
+            rotatePiece()
+            updatePiece(movingPiece, 2)
         end
         lastSideMove = love.timer.getMicroTime()
     end
